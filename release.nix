@@ -1,5 +1,5 @@
 { patchelfSrc ? { outPath = ./.; revCount = 1234; shortRev = "abcdef"; }
-, nixpkgs ? builtins.fetchTarball https://github.com/NixOS/nixpkgs-channels/archive/nixos-19.03.tar.gz
+, nixpkgs ? builtins.fetchTarball https://github.com/NixOS/nixpkgs-channels/archive/nixos-20.03.tar.gz
 , officialRelease ? false
 }:
 
@@ -25,8 +25,8 @@ let
         src = patchelfSrc;
         preAutoconf = "echo ${version} > version";
         postDist = ''
-          cp README $out/
-          echo "doc readme $out/README" >> $out/nix-support/hydra-build-products
+          cp README.md $out/
+          echo "doc readme $out/README.md" >> $out/nix-support/hydra-build-products
         '';
       };
 

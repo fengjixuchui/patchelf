@@ -746,14 +746,13 @@ void ElfFile<ElfFileParamNames>::rewriteSectionsLibrary()
        since DYN executables tend to start at virtual address 0, so
        rewriteSectionsExecutable() won't work because it doesn't have
        any virtual address space to grow downwards into. */
-    if (isExecutable) {
-        if (startOffset >= startPage) {
-            debug("shifting new PT_LOAD segment by %d bytes to work around a Linux kernel bug\n", startOffset - startPage);
-        }
+    if (isExecutable && startOffset > startPage) {
+        debug("shifting new PT_LOAD segment by %d bytes to work around a Linux kernel bug\n", startOffset - startPage);
         startPage = startOffset;
     }
 
     /* Add a segment that maps the replaced sections into memory. */
+    wri(hdr->e_phoff, sizeof(Elf_Ehdr));
     phdrs.resize(rdi(hdr->e_phnum) + 1);
     wri(hdr->e_phnum, rdi(hdr->e_phnum) + 1);
     Elf_Phdr & phdr = phdrs[rdi(hdr->e_phnum) - 1];
@@ -1078,13 +1077,6 @@ void ElfFile<ElfFileParamNames>::modifySoname(sonameMode op, const std::string &
         return;
     }
 
-    /* Zero out the previous SONAME */
-    unsigned int sonameSize = 0;
-    if (soname) {
-        sonameSize = strlen(soname);
-        memset(soname, 'X', sonameSize);
-    }
-
     debug("new SONAME is '%s'\n", newSoname.c_str());
 
     /* Grow the .dynstr section to make room for the new SONAME. */
@@ -1259,7 +1251,17 @@ void ElfFile<ElfFileParamNames>::modifyRPath(RPathOp op,
     }
 
 
-    if (std::string(rpath ? rpath : "") == newRPath) return;
+    if (!forceRPath && dynRPath && !dynRunPath) { /* convert DT_RPATH to DT_RUNPATH */
+        dynRPath->d_tag = DT_RUNPATH;
+        dynRunPath = dynRPath;
+        dynRPath = 0;
+    } else if (forceRPath && dynRunPath) { /* convert DT_RUNPATH to DT_RPATH */
+        dynRunPath->d_tag = DT_RPATH;
+        dynRPath = dynRunPath;
+        dynRunPath = 0;
+    } else if (std::string(rpath ? rpath : "") == newRPath) {
+        return;
+    }
 
     changed = true;
 
@@ -1273,15 +1275,6 @@ void ElfFile<ElfFileParamNames>::modifyRPath(RPathOp op,
 
     debug("new rpath is '%s'\n", newRPath.c_str());
 
-    if (!forceRPath && dynRPath && !dynRunPath) { /* convert DT_RPATH to DT_RUNPATH */
-        dynRPath->d_tag = DT_RUNPATH;
-        dynRunPath = dynRPath;
-        dynRPath = 0;
-    }
-
-    if (forceRPath && dynRPath && dynRunPath) { /* convert DT_RUNPATH to DT_RPATH */
-        dynRunPath->d_tag = DT_IGNORE;
-    }
 
     if (newRPath.size() <= rpathSize) {
         strcpy(rpath, newRPath.c_str());
