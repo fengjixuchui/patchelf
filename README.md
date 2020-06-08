@@ -52,14 +52,13 @@ libraries.  In particular, it can do the following:
   $ patchelf --set-soname libnewname.so.3.4.5 path/to/libmylibrary.so.1.2.3
 
 
-## INSTALLING
-
-You can download a pre-compiled binary from the releases or compile it by yourself:
+## COMPILING & TESTING
 
     ./bootstrap.sh
     ./configure
     make
     sudo make install
+    make check
 
 ## AUTHOR
 
@@ -80,21 +79,6 @@ General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-
-## HOMEPAGE
-
-https://nixos.org/patchelf.html
-
-
-## BUGS
-
-The `strip' command from binutils generated broken executables when
-applied to the output of patchelf (if `--set-rpath' or
-`--set-interpreter' with a larger path than the original is used).
-This appears to be a bug in binutils
-(http://bugs.strategoxt.org/browse/NIXPKGS-85).
-
 
 ## RELEASE HISTORY
 
