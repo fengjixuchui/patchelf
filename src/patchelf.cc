@@ -57,8 +57,8 @@ static int forcedPageSize = -1;
 typedef std::shared_ptr<std::vector<unsigned char>> FileContents;
 
 
-#define ElfFileParams class Elf_Ehdr, class Elf_Phdr, class Elf_Shdr, class Elf_Addr, class Elf_Off, class Elf_Dyn, class Elf_Sym, class Elf_Verneed
-#define ElfFileParamNames Elf_Ehdr, Elf_Phdr, Elf_Shdr, Elf_Addr, Elf_Off, Elf_Dyn, Elf_Sym, Elf_Verneed
+#define ElfFileParams class Elf_Ehdr, class Elf_Phdr, class Elf_Shdr, class Elf_Addr, class Elf_Off, class Elf_Dyn, class Elf_Sym, class Elf_Verneed, class Elf_Versym
+#define ElfFileParamNames Elf_Ehdr, Elf_Phdr, Elf_Shdr, Elf_Addr, Elf_Off, Elf_Dyn, Elf_Sym, Elf_Verneed, Elf_Versym
 
 
 static std::vector<std::string> splitColonDelimitedString(const char * s)
@@ -215,6 +215,8 @@ public:
 
     void noDefaultLib();
 
+    void clearSymbolVersions(const std::set<std::string> & syms);
+
 private:
 
     /* Convert an integer in big or little endian representation (as
@@ -251,9 +253,6 @@ I ElfFile<ElfFileParamNames>::rdi(I i) const
     }
     return r;
 }
-
-/* Ugly: used to erase DT_RUNPATH when using --force-rpath. */
-#define DT_IGNORE       0x00726e67
 
 
 static void debug(const char * format, ...)
@@ -1382,14 +1381,18 @@ void ElfFile<ElfFileParamNames>::modifyRPath(RPathOp op,
 
 
     if (!forceRPath && dynRPath && !dynRunPath) { /* convert DT_RPATH to DT_RUNPATH */
-        dynRPath->d_tag = DT_RUNPATH;
+        wri(dynRPath->d_tag, DT_RUNPATH);
         dynRunPath = dynRPath;
         dynRPath = 0;
+        changed = true;
     } else if (forceRPath && dynRunPath) { /* convert DT_RUNPATH to DT_RPATH */
-        dynRunPath->d_tag = DT_RPATH;
+        wri(dynRunPath->d_tag, DT_RPATH);
         dynRPath = dynRunPath;
         dynRunPath = 0;
-    } else if (std::string(rpath ? rpath : "") == newRPath) {
+        changed = true;
+    }
+
+    if (std::string(rpath ? rpath : "") == newRPath) {
         return;
     }
 
@@ -1675,6 +1678,33 @@ void ElfFile<ElfFileParamNames>::noDefaultLib()
     changed = true;
 }
 
+template<ElfFileParams>
+void ElfFile<ElfFileParamNames>::clearSymbolVersions(const std::set<std::string> & syms)
+{
+    if (syms.empty()) return;
+
+    auto shdrDynStr = findSection(".dynstr");
+    auto shdrDynsym = findSection(".dynsym");
+    auto shdrVersym = findSection(".gnu.version");
+
+    char * strTab = (char *) contents + rdi(shdrDynStr.sh_offset);
+    Elf_Sym * dynsyms = (Elf_Sym *) (contents + rdi(shdrDynsym.sh_offset));
+    Elf_Versym * versyms = (Elf_Versym *) (contents + rdi(shdrVersym.sh_offset));
+    size_t count = rdi(shdrDynsym.sh_size) / sizeof(Elf_Sym);
+
+    if (count != rdi(shdrVersym.sh_size) / sizeof(Elf_Versym))
+        error("versym size mismatch");
+
+    for (size_t i = 0; i < count; i++) {
+        auto dynsym = dynsyms[i];
+        auto name = strTab + rdi(dynsym.st_name);
+        if (syms.find(name) != syms.end()) {
+            debug("clearing symbol version for %s\n", name);
+            wri(versyms[i], 1);
+        }
+    }
+    changed = true;
+}
 
 static bool printInterpreter = false;
 static bool printSoname = false;
@@ -1690,6 +1720,7 @@ static std::string newRPath;
 static std::set<std::string> neededLibsToRemove;
 static std::map<std::string, std::string> neededLibsToReplace;
 static std::set<std::string> neededLibsToAdd;
+static std::set<std::string> symbolsToClearVersion;
 static bool printNeeded = false;
 static bool noDefaultLib = false;
 
@@ -1723,6 +1754,7 @@ static void patchElf2(ElfFile && elfFile, const FileContents & fileContents, std
     elfFile.removeNeeded(neededLibsToRemove);
     elfFile.replaceNeeded(neededLibsToReplace);
     elfFile.addNeeded(neededLibsToAdd);
+    elfFile.clearSymbolVersions(symbolsToClearVersion);
 
     if (noDefaultLib)
         elfFile.noDefaultLib();
@@ -1747,9 +1779,9 @@ static void patchElf()
         std::string outputFileName2 = outputFileName.empty() ? fileName : outputFileName;
 
         if (getElfType(fileContents).is32Bit)
-            patchElf2(ElfFile<Elf32_Ehdr, Elf32_Phdr, Elf32_Shdr, Elf32_Addr, Elf32_Off, Elf32_Dyn, Elf32_Sym, Elf32_Verneed>(fileContents), fileContents, outputFileName2);
+            patchElf2(ElfFile<Elf32_Ehdr, Elf32_Phdr, Elf32_Shdr, Elf32_Addr, Elf32_Off, Elf32_Dyn, Elf32_Sym, Elf32_Verneed, Elf32_Versym>(fileContents), fileContents, outputFileName2);
         else
-            patchElf2(ElfFile<Elf64_Ehdr, Elf64_Phdr, Elf64_Shdr, Elf64_Addr, Elf64_Off, Elf64_Dyn, Elf64_Sym, Elf64_Verneed>(fileContents), fileContents, outputFileName2);
+            patchElf2(ElfFile<Elf64_Ehdr, Elf64_Phdr, Elf64_Shdr, Elf64_Addr, Elf64_Off, Elf64_Dyn, Elf64_Sym, Elf64_Verneed, Elf64_Versym>(fileContents), fileContents, outputFileName2);
     }
 }
 
@@ -1773,6 +1805,7 @@ void showHelp(const std::string & progName)
   [--replace-needed LIBRARY NEW_LIBRARY]\n\
   [--print-needed]\n\
   [--no-default-lib]\n\
+  [--clear-symbol-version SYMBOL]\n\
   [--output FILE]\n\
   [--debug]\n\
   [--version]\n\
@@ -1859,6 +1892,10 @@ int mainWrapped(int argc, char * * argv)
             if (i+2 >= argc) error("missing argument(s)");
             neededLibsToReplace[ argv[i+1] ] = argv[i+2];
             i += 2;
+        }
+        else if (arg == "--clear-symbol-version") {
+            if (++i == argc) error("missing argument");
+            symbolsToClearVersion.insert(argv[i]);
         }
         else if (arg == "--output") {
             if (++i == argc) error("missing argument");
