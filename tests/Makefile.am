@@ -25,14 +25,16 @@ src_TESTS = \
   force-rpath.sh \
   plain-needed.sh \
   output-flag.sh \
-  build-id.sh
+  no-rpath-pie-powerpc.sh \
+  build-id.sh \
+  invalid-elf.sh
 
 build_TESTS = \
   $(no_rpath_arch_TESTS)
 
 TESTS = $(src_TESTS) $(build_TESTS)
 
-EXTRA_DIST = no-rpath-prebuild $(src_TESTS) no-rpath-prebuild.sh
+EXTRA_DIST = no-rpath-prebuild $(src_TESTS) no-rpath-prebuild.sh invalid-elf
 
 TESTS_ENVIRONMENT = PATCHELF_DEBUG=1
 
